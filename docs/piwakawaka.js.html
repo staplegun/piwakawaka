@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Source: piwakawaka.js - JSDoc</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-name.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: piwakawaka.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/********************************************************************
+* Copyright (c) 2018, Douglas Campbell
+* Licensed under the MIT License
+********************************************************************/
+
+/**
+* OpenSeadragon viewer div HTML ID.
+* @constant
+* @type {String}
+* @default
+*/
+const piwakawakaViewerId = "image-navigator-viewer";
+
+/**
+* Label overlay HTML ID used for the generated label div.
+* @constant
+* @type {String}
+* @default
+*/
+const piwakawakaLabelOverlayId = "image-navigator-label-div";
+
+/**
+* Label overlay CSS class. This CSS classname is used to style the labels.
+* @constant
+* @type {String}
+* @default
+*/
+const piwakawakaLabelOverlayClass = "image-navigator-label";
+
+/**
+__Pīwakawaka IIIF Image Navigator__
+
+A controlled experience of an IIIF image in an OpenSeadragon (OSD) viewer.
+
+The Pīwakawaka library adds a wrapper around an
+[OpenSeadragon](https://openseadragon.github.io/) viewer object
+(designed to present zoomable [IIIF images](http://iiif.io/)).
+It takes over control of OpenSeadragon, presenting selected points of interest
+(using pan, zoom, pauses, and labels) in a configurable sequence.
+
+Source: [GitHub repository](https://github.com/staplegun/piwakawaka)
+
+Requires:
+- [OpenSeadragon](https://openseadragon.github.io/) -
+`&lt;script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/openseadragon.min.js">&lt;/script>`
+- [NoSleep.js](https://github.com/richtr/NoSleep.js) -
+`&lt;script src="https://cdn.rawgit.com/richtr/NoSleep.js/v0.7.1/dist/NoSleep.js">&lt;/script>`
+
+_Implementation notes_
+
+OpenSeadragon uses three image co-ordinate systems:
+1. image = pixels of the source image (as at original/100% resolution)
+e.g. width: 0-4000, height: 0-5000
+2. viewport = percentage of the source image
+e.g. width: 0 - 1, height: 0 - 1
+3. web container = pixels of the HTML element showing a part of the source image
+e.g. width: 0 - 300, height: 0 - 400
+
+Most calculations here use source image co-ordinates (1 above), which are
+converted to/from viewport or web co-ordinates as necessary for OSD operations.
+While this does increase the number of calculations/conversions, it makes it
+easier to define locations to show, e.g. it is easier to specify a region of
+an image when looking at the original image in image editor software.
+
+Regions are specified as rectangles, following OSD's
+[Rect](https://openseadragon.github.io/docs/OpenSeadragon.Rect.html) structure
+(excluding rotation) as `{x,y,w,h}`:
+- `x` = horizontal position of the top-left corner of the region rectangle,
+where 0 is the left edge of the source image
+- `y` = vertical position of the top-left corner of the region rectangle,
+where 0 is the top edge of the source image
+- `w` = horizontal width of the rectangle (to the right)
+- `h` = vertical height of the rectangle (downwards)
+
+For example, `{20,40,300,500}` defines a rectangle that starts 20 pixels from
+the left edge of the source image and 40 pixels from its top,
+then extends 300 pixels to the right and 500 pixels downwards.
+
+_Pīwakawaka name_
+
+Named after the Pīwakawaka (_pee-wahkah-wahkah_) bird
+([New Zealand Fantail](https://en.wikipedia.org/wiki/New_Zealand_fantail))
+which typically flits about constantly from place to place looking for tasty morsels.
+*/
+class Piwakawaka {
+
+  /**
+  * Constructs a Pīwakawaka image navigator wrapper around an OpenSeadragon viewer.
+  *
+  * @param {Object} - Configuration JSON
+  * @param {Function} - Callback function to call when play begins/resumes
+  * @param {Function} - Callback function to call when play stops
+  */
+  constructor(config, playCallback, stopCallback) {
+    this._playCallback = playCallback
+    this._stopCallback = stopCallback
+    // set defaults
+    this._fillViewer = Piwakawaka.defaultFillViewer
+    this._speedFactor = Piwakawaka.defaultSpeedFactor
+    this._springStiffness = Piwakawaka.defaultSpringStiffness
+    this._fullscreenViewer = true
+    this._sequenceStep = 0
+    this._paused = true
+    this._conditions = void 0
+    this.initConditions()
+    // create viewer element in HTML DOM
+    this._viewerDiv = document.createElement("div");
+    this._viewerDiv.setAttribute("id", piwakawakaViewerId);
+    this._viewerDiv.style.visibility = "hidden"
+    document.body.appendChild(this._viewerDiv);
+    // prepare label overlay in HTML DOM
+    this._overlayElement = document.createElement("div");
+    this._overlayElement.id = piwakawakaLabelOverlayId
+    this._overlayElement.className = piwakawakaLabelOverlayClass
+    // create OSD viewer
+    this.init(config)
+    this._viewer = void 0
+    this.initViewer()
+    // create NoSleep
+    this._noSleep = new NoSleep();
+  }
+
+  /**
+  * Stores the supplied configuration. Only stores non-empty
+  * supplied properties (other existing properties are unchanged).
+  *
+  * @param {Object} - Configuration JSON
+  */
+  init(config) {
+    console.log("Init Pīwakawaka navigator object",config)
+    if (config === undefined || config == null) return
+    if (config.image != null) this.setImageLocation(config.image)
+    if (config.speed != null) this.setSpeedFactor(config.speed)
+    if (config.fillViewer != null) this.setFillViewer(config.fillViewer)
+    if (config.crop != null) this.setCrop(config.crop[0], config.crop[1], config.crop[2], config.crop[3])
+    if (config.sequence != null) this.setSequence(config.sequence)
+    this._previousConfig = this._config  // useful?
+    this._config = config
+    this._sequenceStep = 0
+  }
+
+  /**
+  * Resets all conditions that trigger whether actions should be skipped.
+  *
+  * Conditions:
+  * - `overEdge` = 'prev' or 'next' attempt would move beyond the edge of the image
+  */
+  initConditions() {
+    this._conditions = {"overEdge": false}
+  }
+
+  /**
+  * Sets the IIIF image URL in the config.
+  *
+  * @param {String}
+  */
+  setImageLocation(imageUrl) {
+    if (imageUrl == undefined || imageUrl == null) return
+    this._imageLocation = imageUrl
+  }
+
+  /**
+  * Sets the supplied Pīwakawaka navigation sequence in the config.
+  *
+  * @param {Object}
+  */
+  setSequence(sequence) {
+    if ($.type(sequence) != 'array') console.log("ERROR: sequence is not an array")
+    this._sequence = sequence
+  }
+
+  /**
+  * Sets a cropped rectangle area within the image in the config,
+  * so auto-pan operations stay within the cropped box.
+  * All parameters are mandatory. If any are null cropping is reset/removed.
+  *
+  * @param {Number}
+  * @param {Number}
+  * @param {Number}
+  * @param {Number}
+  */
+  setCrop(x, y, width, height) {
+    if (x==null || y==null || width==null || height==null) {
+      this._crop = null
+      return
+    }
+    this._crop = {x, y, width, height}
+  }
+
+  /**
+  * Sets the flag whether the viewer should take over as full screen.
+  * Full screen also disables sleep mode on devices.
+  *
+  * @param {Boolean}
+  */
+  setFullscreen(fullscreen) {
+    this._fullscreenViewer = fullscreen
+  }
+
+  /**
+  * Sets the flag whether a fully zoomed-out view should fill the screen.
+  * If false, letterbox or side bars will be seen.
+  *
+  * @param {Boolean}
+  */
+  setFillViewer(fillViewer) {
+    this._fillViewer = fillViewer
+  }
+
+  /**
+  * Sets the pan speed factor in the config.
+  *
+  * Allows control of the pan speed by multiplying the specified factor
+  * over the base speed (10 pixels per second).
+  *
+  * The speed is measured in 'webpage' pixels - so the speed appears
+  * consistent no matter what resolution the source image is or at what
+  * zoom level.
+  *
+  * Higher is faster, e.g.
+  * - `1` = 10 px/sec
+  * - `5` = 50 px/sec
+  * - `20` = 200 px/sec
+  *
+  * @param {Number} - Pan speed multiplier
+  */
+  setSpeedFactor(speedFactor) {
+    this._speedFactor = speedFactor
+  }
+
+  /**
+  * Sets the spring stiffness in the underlying OpenSeadragon viewer.
+  * Adjusts how 'springy' all subsequent pan movements appears.
+  *
+  * Higher is less linear, e.g.
+  * - `1` = linear (pan exactly the same speed throughout the move)
+  * - `2` = some spring (starts slow, speeds up, then slows as arrives)
+  *
+  * @param {Number} - Spring stiffness
+  */
+  applySpringStiffness(springStiffness) {
+    // TODO this doesn't seem to adjust the stiffness properly
+    this._viewer.viewport.centerSpringX.springStiffness = this._springStiffness
+    this._viewer.viewport.centerSpringY.springStiffness = this._springStiffness
+    this._viewer.viewport.zoomSpring.springStiffness = this._springStiffness
+  }
+
+  /**
+  * Sets the specified animation duration (adjusted by the current speed factor)
+  * in the underlying OpenSeadragon viewer.  Applies to all subsequent pan movements.
+  * If current speed factor is less than zero, the duration is set at 0 seconds.
+  *
+  * @param {Number} - Pan duration in seconds
+  */
+  applyAnimationDuration(secs) {
+    secs = secs / this._speedFactor
+    if (this._speedFactor &lt; 0) secs = 0
+    this._viewer.viewport.centerSpringX.animationTime = secs
+    this._viewer.viewport.centerSpringY.animationTime = secs
+    this._viewer.viewport.zoomSpring.animationTime = secs
+  }
+
+  /**
+  * Retrieves the viewport dimensions of the part of the image that is
+  * currently visible in the webpage container. The pixels are coordinates
+  * within the Viewport (OSD's special layer over the entire source image).
+  * The returned rectangle is described as: x,y of the top left corner,
+  * plus the rectangle's width and height.
+  *
+  * @return {OpenSeadragon.Rect} Viewport bounds currently visable in the webpage container
+  */
+  getCurrentViewportVisibleRegion() {
+    return this._viewer.viewport.getBounds()
+  }
+
+  /**
+  * Retrieves the image dimensions of the part of the image that is currently
+  * visible in the webpage container. The pixels are coordinates within the
+  * source image - as at it's original 100% resolution.
+  * The returned rectangle is described as: x,y of the top left corner,
+  * plus the rectangle's width and height.
+  *
+  * @return {OpenSeadragon.Rect} Image pixels currently visable in the webpage container
+  */
+  getCurrentImageVisibleRegion() {
+    let img = this._viewer.viewport.viewportToImageRectangle(this._viewer.viewport.getBounds())
+    // round calculations to whole numbers
+    return new OpenSeadragon.Rect(Math.round(img.x), Math.round(img.y), Math.round(img.width), Math.round(img.height) )
+  }
+
+  /**
+  * Starts automated play of the currently configured Pīwakawaka sequence.
+  *
+  * If full screen mode is enabled, switches the view and activates no-sleep.
+  * NB: This step must be called as the result of a user action - Web browsers
+  * do not allow scripts to switch to full screen by themselves.
+  *
+  * @param {Number} - Step in the sequence to play from, 0=step 1, empty=step 1, -1=resume
+  */
+  play(fromStepNo = 0) {
+    console.log("PLAY sequence",this._sequence)
+    this._viewerDiv.style.visibility = "visible"
+    if (fromStepNo > -1) this._sequenceStep = fromStepNo
+    this._paused = false
+    if (this._fullscreenViewer) {
+      this._viewer.setFullScreen(true)
+      this._noSleep.enable()
+    }
+    if (fromStepNo &lt; 0) {
+      // temporarily mark as paused during delay (so no other steps jump the queue)
+      //		this._paused = true
+      // resuming, so zoom to where we last were
+      //this._viewer.forceRedraw()
+      console.log("resume location " + this._sequenceStep, this._imageVisibleRect)
+      this.applyMoveTo(this._imageVisibleRect.x, this._imageVisibleRect.y, this._imageVisibleRect.width, this._imageVisibleRect.height, null, 0 )
+
+      // TODO un pause
+
+    } else {
+      // reset (skip actions) conditions
+      this.initConditions()
+      // create OSD viewer if not already, or init with new image
+      this.initViewer(this._imageLocation)
+    }
+    // start playing (once OSD has finished opening the image)
+    this._viewer.addHandler('open', this.doNextSequenceAction.bind(this))
+    if (this._playCallback) this._playCallback(this)
+  }
+
+  /**
+  * Convenience method to play from the current step.
+  */
+  resume() {
+    console.log("RESUMING")
+    this.play(-1)
+  }
+
+  /**
+  * Pauses automated sequence play. Can be resumed using `resume()`.
+  *
+  * Closes fullscreen display. Note that a long pan may continue running.
+  */
+  stop() {
+    console.log("PAUSED")
+    this._paused = true
+    this._viewer.setFullScreen(false)
+    this._noSleep.disable()
+    this._viewerDiv.style.visibility = "hidden"
+    if (this._stopCallback) this._stopCallback(this)
+  }
+
+  /**
+  * Retrieves the next step in the sequence and performs its action.
+  * If there are no more steps, it calls `stop()`.
+  */
+  doNextSequenceAction() {
+    console.log("Do action, paused=" + this._paused)
+    if (this._paused) return
+    this._sequenceStep++
+    console.log("Next action " + this._sequenceStep + " of " + this._sequence.length)
+    if (this._sequence) {
+      if (this._sequenceStep &lt;= this._sequence.length) {
+        let action = this._sequence[this._sequenceStep - 1]
+        if (action.delay == null || action.delay &lt; 0) action.delay = 0
+        console.log("action (delay:"+action.delay+")",action)
+        if (action.delay > 0) {
+          // temporarily mark as paused during delay (so no other steps jump the queue)
+          this._paused = true
+          setTimeout(
+            function(){
+              this.applyMoveTo(action.x, action.y, action.width, action.height, action.label, action.duration, action.speed, action.spring, action.skip)
+              // delay ended so un-pause
+              this._paused = false
+            }.bind(this),
+            (action.delay * 1000)
+          )
+        } else {
+          this.applyMoveTo(action.x, action.y, action.width, action.height, action.label, action.duration, action.speed, action.spring, action.skip)
+        }
+      } else {
+        this.stop()
+      }
+    }
+  }
+
+  /**
+  * Instructs the the underlying OpenSeadragon viewer to pan and zoom
+  * so that it shows the specified part of the image
+  * (specified using a rectangle's dimensions)
+  * in the visible webpage container.
+  *
+  * If a speed factor is specified, it is used for _this_ move only
+  * (afterwards the speed factor reverts to its previous value).
+  *
+  * @param {Number} - Target rectangle's left side in image pixels
+  * @param {Number} - Target rectangle's top side in image pixels
+  * @param {Number} - Target rectangle's width in image pixels
+  * @param {Number} - Target rectangle's height in image pixels
+  * @param {String} - Label to display in an overlay
+  * @param {Number} - Duration in secs for this movement only (overrides speed factor)
+  * @param {Number} - Speed factor to use for this movement only
+  * @param {Number} - Spring stiffness to use for this movement only
+  * @param {String} - Condition that (if true) will trigger that this action should be skipped
+  */
+  applyMoveTo(targetX, targetY, targetWidth, targetHeight, label, duration, speedFactor, springStiffness, skipCondition) {
+
+    // remove any old label overlays
+    this._viewer.removeOverlay(piwakawakaLabelOverlayId)
+
+    // where are we currently?
+    let viewportVisibleRect = this.getCurrentViewportVisibleRegion()
+    this._imageVisibleRect = this.getCurrentImageVisibleRegion()
+    let originalSpeedFactor = this._speedFactor
+    let originalSpringStiffness = this._springStiffness
+    console.log("imageSource: "+this._viewer.source.width+','+this._viewer.source.height)
+    console.log("move from: " + this._imageVisibleRect.x + "," + this._imageVisibleRect.y + " (" + this._imageVisibleRect.width + "x" + this._imageVisibleRect.height + ")")
+
+    // convert commands to actual image pixels
+    let targetXfinal = this.commandToImagePixel(targetX)
+    let targetYfinal = this.commandToImagePixel(targetY, 'y')
+    targetWidth = this.commandToImagePixel(targetWidth)
+    targetHeight = this.commandToImagePixel(targetHeight, 'y')
+
+    // update any conditions triggered
+    let overEdge = false
+    //console.log("x " + targetX + "->" + targetXfinal + " curr:" + this._imageVisibleRect.x)
+    //console.log("y " + targetY + "->" + targetYfinal + " curr:" + this._imageVisibleRect.y)
+    // we are at edge if prev/next returns same as current
+    if ((targetX == 'prev' || targetX == 'next') &amp;&amp; targetXfinal == this._imageVisibleRect.x) overEdge = true
+    if ((targetY == 'prev' || targetY == 'next') &amp;&amp; targetYfinal == this._imageVisibleRect.y) overEdge = true
+    // only update if not already triggered
+    if (this._conditions.overEdge == false) this._conditions.overEdge = overEdge
+
+    // trigger conditions
+    // skip to next step if trying to do 'next' when already at edge
+    if (this._conditions.overEdge &amp;&amp; skipCondition == 'overEdge') {
+      console.log("Skip step as over the edge")
+      this.doNextSequenceAction()
+      return
+    }
+
+    // copy current size if not specified
+    if (targetWidth == null) targetWidth = this._imageVisibleRect.width
+    if (targetHeight == null) targetHeight = this._imageVisibleRect.height
+
+    // we want a consistant pan speed (as the user experiences it)
+    // so we use web pixel distance rather than source image pixel distance
+    // (as more/less image pixels may pass depending on the current zoom level)
+    let webDistanceDirect = Piwakawaka.calcDirectDistance(this._imageVisibleRect.x, this._imageVisibleRect.y, targetXfinal, targetYfinal)
+    // want to travel over X web pixels/sec, so divide pixels by base speed
+    let animationTimeSecs = webDistanceDirect / Piwakawaka.defaultSpeedWebPixelsPerSecond
+    // update speed and spring if supplied
+    if (speedFactor != null) this.setSpeedFactor(speedFactor)
+    if (springStiffness != null) this.applySpringStiffness(springStiffness)
+    // override speed with duration if provded
+    if (duration) {
+      animationTimeSecs = duration
+      // we don't want our time adjusted by the speed factor
+      this.setSpeedFactor(1)
+    }
+    // configure the duration for this upcoming movement
+    this.applyAnimationDuration(animationTimeSecs)
+
+    // convert target image pixels to viewport coordinates
+    let targetViewportCoordinates = this._viewer.viewport.imageToViewportCoordinates(targetXfinal, targetYfinal)
+    let targetViewportSize = this._viewer.viewport.imageToViewportCoordinates(targetWidth, targetHeight)
+
+    // update viewport bounds with our new target location
+    viewportVisibleRect.x = targetViewportCoordinates.x
+    viewportVisibleRect.y = targetViewportCoordinates.y
+    viewportVisibleRect.width = targetViewportSize.x
+    viewportVisibleRect.height = targetViewportSize.y
+
+    // move there
+    console.log("move to  : " + targetXfinal + "," + targetYfinal + " (" + targetWidth + "x" + targetHeight + ")" + " web-dist:"+webDistanceDirect+" secs:"+animationTimeSecs)
+    console.log("viewportVisibleRect", viewportVisibleRect)
+    let immediately = false
+    if (speedFactor == -1) immediately = true
+    this._viewer.viewport.fitBoundsWithConstraints(viewportVisibleRect, immediately)
+
+    // TODO the label should be added after the movement has finished (better control of placement)
+    // TODO add a way to continue after labelled hotspot, e.g. key press, timed delay
+
+    // add the label as an overlay
+    if (label != null) {
+      this._overlayElement.innerHTML = label
+      this._viewer.addOverlay({
+        element: this._overlayElement,
+        location: new OpenSeadragon.Point(0.21,0.2),
+        placement: OpenSeadragon.Placement.CENTER
+      });
+    }
+
+    // revert to the previous speed/spring
+    this.setSpeedFactor(originalSpeedFactor)
+    this.applySpringStiffness(originalSpringStiffness)
+  }
+
+  /**
+  * Converts movement commands to actual target image pixels.
+  * Known commands are converted to numbers, anything else
+  * (numbers or unknown commands) are returned unchanged.
+  * Calculates locations along the single dimension specified.
+  *
+  * Commands:
+  * - `min` = minimum image pixel on this dimension (0 or cropped min)
+  * - `max` = maximum image pixel on this dimension (image or cropped max)
+  * - `same` = current image pixel location (i.e. no change)
+  * - `next` = location that scrolls forward by the size that is currently visible
+  * - `prev` = location that scrolls backwards by the size that is currently visible
+  *
+  * @param {String} - Pixel {Number}, or command {String} to convert to pixel
+  * @param {String} - Dimension: `x` (horizontal, default), `y` (vertical)
+  * @return {Number} Calculated target pixel value
+  */
+  commandToImagePixel(value, dimension) {
+    let imageSource = this._viewer.source
+    this._imageVisibleRect = this.getCurrentImageVisibleRegion()
+
+    // set up measurements for x dimension
+    let imageMin = 0
+    let imageMax = imageSource.width
+    let imageCurrent = this._imageVisibleRect.x
+    let imageVisibleSize = this._imageVisibleRect.width
+    // reduce measurements if cropping (setCrop() ensures non-null values)
+    if (this._crop != null) {
+      imageMin = this._crop.x
+      imageMax = this._crop.x + this._crop.width
+    }
+
+    // switch to y dimension if specified
+    if (dimension === 'y') {
+      imageMax = imageSource.height;
+      imageCurrent = this._imageVisibleRect.y
+      imageVisibleSize = this._imageVisibleRect.height
+      // reduce measurements if cropping (setCrop() ensures non-null values)
+      if (this._crop != null) {
+        imageMin = this._crop.y
+        imageMax = this._crop.y + this._crop.height
+      }
+    }
+
+    switch (value) {
+      case 'min':
+      case 'minimum':
+        value = imageMin;
+        break
+      case 'max':
+      case 'maximum':
+        value = imageMax
+        break
+      case 'same':
+        value = imageCurrent
+        break
+      case 'next':
+        // add on the size that is visible so we move just beyond it
+        value = imageCurrent + imageVisibleSize
+        // but don't go over the edge
+        let edge = imageMax - imageVisibleSize
+        if (value > edge) value = edge
+        break
+      case 'prev':
+      case 'previous':
+        value = imageCurrent - imageVisibleSize
+        // don't go over the edge
+        if (value &lt; 0) value = 0
+        break
+    }
+    return value
+  }
+
+  /**
+  * Creates an OpenSeadragon (OSD) viewer for the specified image.
+  * The viewer is locked down so the user can't do much - this
+  * navigator will control it.
+  *
+  * @param {String} - IIIF Image URL (info.json)
+  */
+  initViewer(imageUrl) {
+    console.log('init viewer: '+imageUrl)
+
+    if (this._viewer) {
+      console.log("updating OSD viewer to new image")
+      // TODO these levels don't seem to have an effect
+      let minZoomLevel = (this._fillViewer ? 1 : 0)
+      let defaultZoomLevel = (this._fillViewer ? 1 : 0)
+      this._viewer.defaultZoomLevel = 0
+      this._viewer.minZoomLevel = 0
+      this._viewer.open(imageUrl)
+      return
+    }
+
+    console.log("creating OSD viewer")
+    let gestureSettings = {
+      scrollToZoom: false,
+      clickToZoom: false,
+      dblClickToZoom: false,
+      pinchToZoom: false,
+      pinchRotate: false,
+      flickEnabled: false
+    }
+    let minZoomLevel = (this._fillViewer ? 1 : 0)
+    let defaultZoomLevel = (this._fillViewer ? 1 : 0)
+    this._viewer = OpenSeadragon({
+      id: piwakawakaViewerId,
+      prefixUrl: "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/images/",
+      tileSources: imageUrl,
+      crossOriginPolicy: "Anonymous",
+      minZoomLevel: minZoomLevel,
+      defaultZoomLevel: defaultZoomLevel,
+      sequenceMode: true,
+      visibilityRatio: 1,
+      constrainDuringPan: true,
+      gestureSettingsMouse: gestureSettings,
+      gestureSettingsTouch: gestureSettings,
+      gestureSettingsPen: gestureSettings,
+      gestureSettingsUnknown: gestureSettings,
+      panHorizontal: false,
+      panVertical: false,
+      showNavigationControl: true,
+      autoHideControls: true,
+      showZoomControl: false,
+      showHomeControl: false,
+      showSequenceControl: false,
+      showRotationControl: false,
+      showFullPageControl: false
+    })
+
+    // add exit button, if not there already
+    if (this._stopButton == null) {
+      this._stopButton = new OpenSeadragon.Button({
+        tooltip: 'Close',
+        srcRest: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/images/previous_rest.png',
+        srcGroup: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/images/previous_grouphover.png',
+        srcHover: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/images/previous_hover.png',
+        srcDown: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/images/previous_pressed.png',
+        onClick: this.stop.bind(this),
+        fadeDelay: 5000,
+        fadeLength: 2000
+      });
+      this._viewer.addControl(this._stopButton.element, {
+        anchor: OpenSeadragon.ControlAnchor.BOTTOM_LEFT
+      });
+    }
+
+    // set up an ongoing trigger in the OSD viewer,
+    // to do the next action after each animation finishes
+    this._viewer.addHandler('animation-finish', this.doNextSequenceAction.bind(this))
+
+    // catch exiting the viewer by ESCaping out of full-screen
+    this._viewer.addHandler('full-screen', this.fullscreenEventHandler.bind(this))
+  }
+
+  fullscreenEventHandler(event) {
+    if (event.fullScreen == false) this.stop()
+  }
+
+  getViewer() {
+    return this._viewer
+  }
+
+  /**
+  * Calculates the distance in pixels of a direct/diagonal line
+  * from the specified start point (x,y) to the specified end point (x,y).
+  * @param {Number}
+  * @param {Number}
+  * @param {Number}
+  * @param {Number}
+  * @return {Number} Approximate distance in pixels
+  */
+  static calcDirectDistance(startX, startY, endX, endY) {
+    // using Pythagorean theorem for diagonal distance: sqrt( change(x)*2 + change(y)*2 )
+    let distanceX = Math.abs(endX - startX)
+    let distanceY = Math.abs(endY - startY)
+    let distanceDirect = Math.round( Math.sqrt( Math.pow(distanceX,2) + Math.pow(distanceY,2) ) )
+    return distanceDirect
+  }
+
+  /**
+  * Retrieves the value of the specified parameter name from the querystring in the supplied URL.
+  *
+  * @param {String} - Querystring parameter name
+  * @param {String} - URL (use `null` for the current webpage URL)
+  * @return {Number} Parameter's value
+  */
+  static getParameterByName(parameterName, url) {
+    if (url === undefined) url = window.location.href;
+    parameterName = parameterName.replace(/[\[\]]/g, "\\$&amp;");
+    let regex = new RegExp("[?&amp;]" + parameterName + "(=([^&amp;#]*)|&amp;|#|$)"),
+    results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, " "));
+  }
+}
+
+/**
+* Default base speed for panning in webpage pixels per seconds.
+* @constant
+* @type {Number}
+* @default
+*/
+Piwakawaka.defaultSpeedWebPixelsPerSecond = 10.0
+
+/**
+* Default whether full view fills screen (crops), or letterboxed.
+* @constant
+* @type {Boolean}
+* @default
+*/
+Piwakawaka.defaultFillViewer = true
+
+/**
+* Default pan speed adjustment factor (over the base speed).
+* @constant
+* @type {Number}
+* @default
+*/
+Piwakawaka.defaultSpeedFactor = 10.0
+
+/**
+* Default pan movement stiffness (1 = linear).
+* @constant
+* @type {Number}
+* @default
+*/
+Piwakawaka.defaultSpringStiffness = 1.0
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Piwakawaka.html">Piwakawaka</a></li></ul><h3>Global</h3><ul><li><a href="global.html#piwakawakaLabelOverlayClass">piwakawakaLabelOverlayClass</a></li><li><a href="global.html#piwakawakaLabelOverlayId">piwakawakaLabelOverlayId</a></li><li><a href="global.html#piwakawakaViewerId">piwakawakaViewerId</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
