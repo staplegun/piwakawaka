@@ -55,6 +55,7 @@ It takes over control of OpenSeadragon, presenting selected points of interest
 <p>NB: Currently it does not work in Internet Explorer (as the code uses <code>class</code>
 and there is no transpiling pipeline set up).</p>
 <pre class="prettyprint source lang-HTML"><code>&lt;canvas id=&quot;canvas&quot; />
+&lt;script src=&quot;https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js&quot;>&lt;/script>
 &lt;script src=&quot;https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/openseadragon.min.js&quot;>&lt;/script>
 &lt;script src=&quot;https://cdn.rawgit.com/richtr/NoSleep.js/v0.7.1/dist/NoSleep.js&quot;>&lt;/script>
 &lt;script src=&quot;https://rawgit.com/staplegun/piwakawaka/master/piwakawaka.min.js&quot;>&lt;/script>
@@ -63,6 +64,8 @@ and there is no transpiling pipeline set up).</p>
 let iiifUrl = &quot;https://media.tepapa.govt.nz/collection/58998/iiif&quot;
 
 let piwakawakaNavigator = new Piwakawaka(null, viewerStarted, viewerStopped)
+// NB: web browsers only allow fullscreen if the user initiates it
+piwakawakaNavigator.setFullscreen(false)
 piwakawakaNavigator.setImageLocation(iiifUrl)
 piwakawakaNavigator.play()
 
@@ -104,11 +107,11 @@ function viewerStopped() {
   }
 ]
 let piwakawakaConfig = {
-  &quot;image&quot; = &quot;https://media.tepapa.govt.nz/collection/58998/iiif&quot;,
-  &quot;speed&quot; = 5,
-  &quot;fillViewer&quot; = true,
-  &quot;crop&quot; = [0,0,2000,2000],
-  &quot;sequence&quot; = sequence,
+  &quot;image&quot;: &quot;https://media.tepapa.govt.nz/collection/58998/iiif&quot;,
+  &quot;speed&quot;: 20,
+  &quot;fillViewer&quot;: true,
+  &quot;crop&quot;: [0,0,2000,2000],
+  &quot;sequence&quot;: sequence,
 }
 let piwakawaka = new Piwakawaka(piwakawakaConfig)
 // or
@@ -143,6 +146,7 @@ then extends 300 pixels to the right and 500 pixels downwards.</p>
 <h2>Requires</h2><ul>
 <li><a href="https://openseadragon.github.io/">OpenSeadragon</a></li>
 <li><a href="https://github.com/richtr/NoSleep.js">NoSleep.js</a></li>
+<li><a href="https://jquery.com/">jQuery</a></li>
 </ul>
 <h2>Pīwakawaka name</h2><p>Named after the Pīwakawaka (<em>pee-wahkah-wahkah</em>) bird
 (<a href="https://en.wikipedia.org/wiki/New_Zealand_fantail">New Zealand Fantail</a>)

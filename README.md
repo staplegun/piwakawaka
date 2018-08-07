@@ -21,6 +21,7 @@ and there is no transpiling pipeline set up).
 
 ```HTML
 <canvas id="canvas" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/openseadragon.min.js"></script>
 <script src="https://cdn.rawgit.com/richtr/NoSleep.js/v0.7.1/dist/NoSleep.js"></script>
 <script src="https://rawgit.com/staplegun/piwakawaka/master/piwakawaka.min.js"></script>
@@ -29,6 +30,8 @@ and there is no transpiling pipeline set up).
 let iiifUrl = "https://media.tepapa.govt.nz/collection/58998/iiif"
 
 let piwakawakaNavigator = new Piwakawaka(null, viewerStarted, viewerStopped)
+// NB: web browsers only allow fullscreen if the user initiates it
+piwakawakaNavigator.setFullscreen(false)
 piwakawakaNavigator.setImageLocation(iiifUrl)
 piwakawakaNavigator.play()
 
@@ -74,11 +77,11 @@ let sequence = [
   }
 ]
 let piwakawakaConfig = {
-  "image" = "https://media.tepapa.govt.nz/collection/58998/iiif",
-  "speed" = 5,
-  "fillViewer" = true,
-  "crop" = [0,0,2000,2000],
-  "sequence" = sequence,
+  "image": "https://media.tepapa.govt.nz/collection/58998/iiif",
+  "speed": 20,
+  "fillViewer": true,
+  "crop": [0,0,2000,2000],
+  "sequence": sequence,
 }
 let piwakawaka = new Piwakawaka(piwakawakaConfig)
 // or
@@ -120,6 +123,7 @@ then extends 300 pixels to the right and 500 pixels downwards.
 
 * [OpenSeadragon](https://openseadragon.github.io/)
 * [NoSleep.js](https://github.com/richtr/NoSleep.js)
+* [jQuery](https://jquery.com/)
 
 ## Pīwakawaka name
 
