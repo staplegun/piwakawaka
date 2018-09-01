@@ -24,7 +24,7 @@ and there is no transpiling pipeline set up).
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/2.3.1/openseadragon.min.js"></script>
 <script src="https://cdn.rawgit.com/richtr/NoSleep.js/v0.7.1/dist/NoSleep.js"></script>
-<script src="https://rawgit.com/staplegun/piwakawaka/master/piwakawaka.min.js"></script>
+<script src="https://cdn.rawgit.com/staplegun/piwakawaka/v1.0.0/piwakawaka.min.js"></script>
 
 <script type="text/javascript">
 let iiifUrl = "https://media.tepapa.govt.nz/collection/58998/iiif"
